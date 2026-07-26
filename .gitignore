@@ -1,0 +1,11 @@
+# Secrets — never commit real keys
+backend/.env
+
+# Runtime artifacts
+backend/latest_cache.json
+backend/hero_latest.jpg
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc

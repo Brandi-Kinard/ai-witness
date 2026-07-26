@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-Witness · Editor</title>
+<link rel="icon" type="image/svg+xml" href="/assets/ai-witness-favicon.svg">
+<style>
+  :root{
+    --ink:#1a1a1a; --muted:#6b7280; --line:#e6e7eb; --bg:#ffffff;
+    --topbar:#f7f7f5; --field:#fbfbfc;
+    --pink:#c880b8; --pink-soft:#d8a0d8; --pink-skel:#f0d6eb;
+    --pill:#e4e4e2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    overscroll-behavior-y:none;
+  }
+  .app{ max-width:640px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
+
+  /* Top bar */
+  .topbar{
+    display:flex; align-items:center; justify-content:flex-end; gap:20px;
+    background:var(--topbar); padding:14px 18px; border-bottom:1px solid var(--line);
+    padding-top:calc(14px + env(safe-area-inset-top));
+  }
+  .topbar button{ border:none; background:none; font:inherit; cursor:pointer; padding:0; color:var(--muted); }
+  .topbar .tab{ font-size:16px; }
+  .topbar .tab.active{ color:var(--ink); font-weight:700; }
+  .topbar .close{ display:flex; color:var(--ink); }
+
+  /* Rich-text toolbar */
+  .toolbar{
+    display:flex; align-items:center; gap:2px; padding:8px 10px;
+    border-bottom:1px solid var(--line); overflow-x:auto; -webkit-overflow-scrolling:touch;
+  }
+  .tbtn{
+    flex:0 0 auto; width:38px; height:38px; border:none; background:none; cursor:pointer;
+    color:#2b2b2b; display:flex; align-items:center; justify-content:center; border-radius:9px;
+    font-size:17px;
+  }
+  .tbtn:hover{ background:#f0f0f2; }
+  .tbtn:disabled{ color:#c9ccd2; cursor:default; }
+  .tbtn:disabled:hover{ background:none; }
+  .tbtn.bold{ font-weight:800; } .tbtn.italic{ font-style:italic; font-family:Georgia,serif; }
+  .tbtn svg{ width:21px; height:21px; }
+  .tbtn.ai{ transition:background .15s; }
+  .tbtn.ai svg{ width:24px; height:24px; color:#2b2b2b; }
+  .tbtn.ai.active{ background:var(--pink-soft); border-radius:11px; }
+  .tbtn.ai.active svg{ color:#fff; }
+  .tbtn.kebab{ margin-left:auto; }
+
+  /* Editor body */
+  .editor{ padding:6px 18px 40px; flex:1; }
+  /* Title is a 1-row auto-growing textarea so long headlines wrap to multiple lines. */
+  .title-input{
+    width:100%; border:none; outline:none; background:transparent; resize:none; overflow:hidden;
+    font-family:inherit; font-size:30px; font-weight:800; line-height:1.2; color:var(--ink);
+    padding:14px 0 6px; letter-spacing:-.01em; white-space:pre-wrap; word-wrap:break-word;
+  }
+  .title-input::placeholder{ color:#9aa1ac; }
+
+  /* Tags */
+  .tags{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:6px 0 4px; }
+  .tags-input{
+    border:none; outline:none; background:transparent; font:inherit; font-size:15px;
+    color:var(--ink); flex:1; min-width:140px; padding:4px 0;
+  }
+  .tags-input::placeholder{ color:#9aa1ac; }
+  .chip{
+    display:inline-flex; align-items:center; gap:7px; background:var(--pill);
+    border-radius:6px; padding:5px 9px; font-size:14px; color:#3a3a3a; white-space:nowrap;
+  }
+  .chip button{ border:none; background:none; cursor:pointer; color:#8a8a8a; padding:0; display:flex; }
+  .chip button svg{ width:13px; height:13px; }
+
+  /* Hero + body */
+  .hero{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:6px; display:none; margin:14px 0 4px; background:#f3f4f6; }
+  .body-input{
+    width:100%; min-height:320px; border:none; outline:none; background:transparent; resize:none;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:15px; line-height:1.7; color:#2b2b2b; padding:14px 0; overflow:hidden;
+  }
+  .body-input::placeholder{ color:#9aa1ac; }
+
+  /* Host skeleton (loading, frame 4) */
+  .skeleton{ display:none; padding:6px 0; }
+  .skeleton.show{ display:block; }
+  .sk{ background:linear-gradient(90deg,var(--pink-skel),#f7e6f4,var(--pink-skel));
+       background-size:200% 100%; animation:shimmer 1.3s linear infinite; border-radius:999px; }
+  .sk-title{ height:26px; width:72%; margin:20px 0 22px; }
+  .sk-hero{ height:190px; width:100%; border-radius:10px; margin-bottom:24px; }
+  .sk-line{ height:16px; margin:12px 0; }
+  .sk-line.w1{ width:92%; } .sk-line.w2{ width:96%; } .sk-line.w3{ width:60%; }
+  @keyframes shimmer{ to{ background-position:-200% 0; } }
+
+  /* Bottom sheet */
+  .backdrop{
+    position:fixed; inset:0; background:rgba(20,20,25,.28); opacity:0; pointer-events:none;
+    transition:opacity .25s ease; z-index:40;
+  }
+  .backdrop.show{ opacity:1; pointer-events:auto; }
+  .sheet{
+    position:fixed; left:0; right:0; bottom:0; z-index:50;
+    max-width:640px; margin:0 auto;
+    background:#fff; border-radius:22px 22px 0 0; box-shadow:0 -8px 40px rgba(0,0,0,.18);
+    transform:translateY(110%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+    padding:14px 16px calc(18px + env(safe-area-inset-bottom));
+    max-height:88vh; overflow-y:auto;
+  }
+  .sheet.show{ transform:translateY(0); }
+
+  /* Input group */
+  .inputwrap{ border:1px solid var(--line); border-radius:18px; padding:14px 14px 10px; }
+  .chips-row{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+  .chips-row:empty{ display:none; }
+  .att-chip{
+    display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line);
+    border-radius:999px; padding:5px 10px 5px 6px; font-size:14px; background:#fff; white-space:nowrap;
+  }
+  .att-chip img,.att-chip .ph{ width:22px; height:22px; border-radius:5px; object-fit:cover; background:#ddd; flex:0 0 auto; }
+  .att-chip button{ border:none; background:none; cursor:pointer; color:#9aa1ac; padding:0; display:flex; }
+  .att-chip button svg{ width:14px; height:14px; }
+  .prompt-input{
+    width:100%; border:none; outline:none; background:transparent; font:inherit; font-size:16px;
+    color:var(--ink); padding:2px 2px 12px;
+  }
+  .prompt-input::placeholder{ color:#9aa1ac; }
+  .input-actions{ display:flex; align-items:center; gap:14px; }
+  .ia-btn{ border:none; background:none; cursor:pointer; color:#5a5a5a; display:flex; align-items:center; padding:0; }
+  .ia-btn svg{ width:22px; height:22px; }
+  .ia-dismiss{ width:30px; height:30px; border-radius:50%; background:#efefef; justify-content:center; }
+  .ia-dismiss svg{ width:16px; height:16px; }
+  .ia-spacer{ margin-left:auto; }
+  .submit{
+    width:38px; height:38px; border-radius:50%; background:var(--pink); border:none; cursor:pointer;
+    display:none; align-items:center; justify-content:center; color:#fff; margin-left:auto;
+  }
+  .submit svg{ width:20px; height:20px; }
+  .submit:disabled{ opacity:.5; }
+
+  /* Handle + AI header */
+  .handle{ width:38px; height:5px; border-radius:999px; background:#dcdce0; margin:16px auto 8px; }
+  .ai-title{ text-align:center; color:var(--pink); font-weight:800; font-size:19px; margin:6px 0 6px; }
+  .ai-sub{ text-align:center; color:var(--muted); font-size:14px; margin:0 auto 16px; max-width:340px; line-height:1.45; }
+
+  /* Media picker */
+  .media-row{ display:flex; gap:12px; overflow-x:auto; padding:2px 2px 8px; -webkit-overflow-scrolling:touch; }
+  .tile{
+    flex:0 0 auto; width:96px; height:96px; border-radius:14px; overflow:hidden; position:relative;
+    cursor:pointer; background:#eee; border:1px solid var(--line);
+  }
+  .tile img,.tile canvas,.tile video{ width:100%; height:100%; object-fit:cover; display:block; }
+  .tile .grad{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:30px; }
+  .tile .badge{ position:absolute; left:6px; bottom:6px; font-size:13px; filter:drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
+  .tile .check{
+    position:absolute; top:6px; right:6px; width:24px; height:24px; border-radius:50%;
+    background:var(--pink); display:none; align-items:center; justify-content:center; color:#fff;
+    box-shadow:0 1px 4px rgba(0,0,0,.25);
+  }
+  .tile .check svg{ width:14px; height:14px; }
+  .tile.sel .check{ display:flex; }
+  .tile.sel{ outline:2px solid var(--pink); outline-offset:-2px; }
+  .add-tile{ align-items:center; justify-content:center; color:#b0b0b8; background:#f6f6f8; display:flex; }
+  .add-tile svg{ width:30px; height:30px; }
+  .counter{ text-align:center; color:var(--muted); font-size:14px; margin-top:10px; }
+  .media-empty{ text-align:center; color:#9aa1ac; font-size:14px; padding:14px 0 6px; }
+
+  /* Sheet loading + error */
+  .sheet-loading{ display:none; text-align:center; padding:10px 0 4px; color:var(--pink); font-weight:600; font-size:15px; }
+  .sheet-loading.show{ display:block; }
+  .sheet-loading .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--pink); margin:0 2px; animation:pulse 1s infinite; }
+  .sheet-loading .dot:nth-child(2){ animation-delay:.15s; } .sheet-loading .dot:nth-child(3){ animation-delay:.3s; }
+  @keyframes pulse{ 0%,100%{ opacity:.3; transform:scale(.8);} 50%{ opacity:1; transform:scale(1);} }
+  .hint{ text-align:center; color:#c0392b; font-size:13px; margin-top:8px; min-height:16px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Top bar -->
+  <div class="topbar">
+    <button id="tab-edit" class="tab active">Edit</button>
+    <button id="tab-preview" class="tab">Preview</button>
+    <button id="close-post" class="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <!-- Rich-text toolbar -->
+  <div class="toolbar">
+    <button id="undo-btn" class="tbtn" title="Undo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 015 5v1a5 5 0 01-5 5H7"/></svg></button>
+    <button id="redo-btn" class="tbtn" title="Redo" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 00-5 5v1a5 5 0 005 5h8"/></svg></button>
+    <button id="fmt-bold" class="tbtn bold" title="Bold">B</button>
+    <button id="fmt-italic" class="tbtn italic" title="Italic">I</button>
+    <button class="tbtn" title="Link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.07 0l3-3A5 5 0 0013 3l-1.5 1.5"/><path d="M14 11a5 5 0 00-7.07 0l-3 3A5 5 0 0011 21l1.5-1.5"/></svg></button>
+    <button id="fmt-ol" class="tbtn" title="Numbered list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11M10 12h11M10 18h11"/><path d="M4 6h1v4M4 10h2M4 15.5a1 1 0 111.7.7L4 18h2" stroke-width="1.6"/></svg></button>
+    <button id="fmt-ul" class="tbtn" title="Bulleted list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg></button>
+    <button class="tbtn" title="Image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg></button>
+    <button id="ai-btn" class="tbtn ai" title="AI Witness" aria-label="Open AI Witness">
+      <svg viewBox="0 0 60 60" fill="currentColor" aria-hidden="true">
+        <path d="M16.375 36.375C19.3333 36.375 21.3542 35.5 22.4375 33.75C23.5208 32 24.0625 29.75 24.0625 27C24.0625 26.2917 23.8125 25.75 23.3125 25.375C22.8125 25 21.8333 24.625 20.375 24.25C19.2917 23.9583 17.9792 23.7812 16.4375 23.7188C14.8958 23.6562 13.3958 23.7292 11.9375 23.9375C10.8542 24.1042 10.0521 24.375 9.53125 24.75C9.01042 25.125 8.75 25.6667 8.75 26.375C8.75 27.5 8.84375 28.5833 9.03125 29.625C9.21875 30.6667 9.5 31.625 9.875 32.5C10.5417 33.9583 11.3229 34.9688 12.2188 35.5312C13.1146 36.0938 14.5 36.375 16.375 36.375ZM16.375 40C13.8333 40 11.8958 39.6562 10.5625 38.9688C9.22917 38.2812 8 37 6.875 35.125C6.25 34.0417 5.71875 32.7917 5.28125 31.375C4.84375 29.9583 4.4375 28.6667 4.0625 27.5C3.60417 27.5 3.22917 27.3542 2.9375 27.0625C2.64583 26.7708 2.5 26.3958 2.5 25.9375V22.875C2.5 22.5 2.625 22.1771 2.875 21.9062C3.125 21.6354 3.4375 21.4583 3.8125 21.375C6.14583 20.9167 8.26042 20.5729 10.1562 20.3438C12.0521 20.1146 13.875 20 15.625 20C18.1667 20 20.4688 20.2188 22.5312 20.6562C24.5938 21.0938 26.2083 21.7083 27.375 22.5H32.6875C33.6875 21.75 35.2708 21.1562 37.4375 20.7188C39.6042 20.2812 41.9375 20.0625 44.4375 20.0625C46.1875 20.0625 48 20.1667 49.875 20.375C51.75 20.5833 53.8542 20.9167 56.1875 21.375C56.5625 21.4583 56.875 21.6354 57.125 21.9062C57.375 22.1771 57.5 22.5 57.5 22.875V25.9375C57.5 26.3958 57.3542 26.7708 57.0625 27.0625C56.7708 27.3542 56.3958 27.5 55.9375 27.5C55.6458 28.4167 55.3438 29.4271 55.0312 30.5312C54.7188 31.6354 54.3333 32.6667 53.875 33.625C53.375 33.1667 52.8438 32.7396 52.2812 32.3438C51.7188 31.9479 51.125 31.5833 50.5 31.25C50.7083 30.5 50.8854 29.7083 51.0312 28.875C51.1771 28.0417 51.25 27.1875 51.25 26.3125C51.25 25.6042 50.9896 25.0521 50.4688 24.6562C49.9479 24.2604 49.125 24 48 23.875C46.5417 23.6667 45.0521 23.6042 43.5312 23.6875C42.0104 23.7708 40.7083 23.9583 39.625 24.25C38.1667 24.625 37.1875 25 36.6875 25.375C36.1875 25.75 35.9375 26.2917 35.9375 27C35.9375 28.1667 36.0208 29.2396 36.1875 30.2188C36.3542 31.1979 36.6458 32.0833 37.0625 32.875C36.5625 33.2917 36.0833 33.7396 35.625 34.2188C35.1667 34.6979 34.7708 35.2292 34.4375 35.8125C34.1458 35.3542 33.8958 34.8958 33.6875 34.4375C33.4792 33.9792 33.2917 33.4583 33.125 32.875C32.9167 32.2083 32.7396 31.5417 32.5938 30.875C32.4479 30.2083 32.2708 29.5417 32.0625 28.875C31.8958 28.375 31.6458 28.0104 31.3125 27.7812C30.9792 27.5521 30.5417 27.4375 30 27.4375C29.5 27.4375 29.0729 27.5625 28.7188 27.8125C28.3646 28.0625 28.1042 28.4167 27.9375 28.875C27.7292 29.5417 27.5521 30.2083 27.4062 30.875C27.2604 31.5417 27.0833 32.2083 26.875 32.875C26.1667 35.375 24.8958 37.1875 23.0625 38.3125C21.2292 39.4375 19 40 16.375 40Z"/>
+        <path d="M45 34C46.543 37.9384 49.7282 41.0071 53.7212 42.4026L54 42.5L53.7212 42.5974C49.7282 43.9929 46.543 47.0616 45 51C43.457 47.0616 40.2718 43.9929 36.2788 42.5974L36 42.5L36.2788 42.4026C40.2718 41.0071 43.457 37.9384 45 34Z"/>
+      </svg>
+    </button>
+    <button class="tbtn kebab" title="More"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></button>
+  </div>
+
+  <!-- Editor -->
+  <div class="editor">
+    <textarea id="title" class="title-input" rows="1" placeholder="New post title here..."></textarea>
+
+    <!-- Skeleton (loading) -->
+    <div id="skeleton" class="skeleton">
+      <div class="sk sk-title"></div>
+      <div class="sk sk-hero"></div>
+      <div class="sk sk-line w1"></div>
+      <div class="sk sk-line w2"></div>
+      <div class="sk sk-line w3"></div>
+    </div>
+
+    <div id="content">
+      <div id="tags" class="tags">
+        <input id="tags-input" class="tags-input" placeholder="Add up to 4 tags...">
+      </div>
+      <img id="hero" class="hero" alt="hero image">
+      <textarea id="body" class="body-input" placeholder="Write your post content here..."></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom sheet -->
+<div id="backdrop" class="backdrop"></div>
+<div id="sheet" class="sheet" role="dialog" aria-label="AI Witness">
+  <div class="inputwrap">
+    <div id="chips-row" class="chips-row"></div>
+    <input id="prompt" class="prompt-input" placeholder="Draft an article about...">
+    <div class="input-actions">
+      <button id="ia-left" class="ia-btn ia-dismiss" title="Dismiss" aria-label="Dismiss">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <button class="ia-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="2"/><path d="M11 8h9M3 8h3"/><circle cx="16" cy="16" r="2"/><path d="M3 16h11M19 16h2"/></svg>
+      </button>
+      <button id="ia-mic" class="ia-btn ia-spacer" title="Voice" aria-label="Voice">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>
+      </button>
+      <button id="submit" class="submit" title="Generate" aria-label="Generate" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V5M6 11l6-6 6 6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="handle"></div>
+  <div class="ai-title">AI Witness</div>
+  <div class="ai-sub">Upload footage. Get a first-draft article you can edit before it's published.</div>
+
+  <div id="media-empty" class="media-empty">Attach a photo or video to get started</div>
+  <div id="media-row" class="media-row"></div>
+  <div id="counter" class="counter">0 Items Selected</div>
+
+  <div id="sheet-loading" class="sheet-loading">Analyzing video<span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  <div id="hint" class="hint"></div>
+
+  <input id="file-input" type="file" accept="video/*,image/*" multiple hidden>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const checkSVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg>';
+  const xSVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+  // ---- state ----
+  // Media row shows ONLY real uploaded files (no demo placeholders).
+  let items = [];   // {id, file, name, kind:'video'|'image', thumb(dataURL|null), selected}
+  let seq = 0;
+
+  // ---- sheet open/close ----
+  function openSheet(){ $('sheet').classList.add('show'); $('backdrop').classList.add('show'); $('ai-btn').classList.add('active'); }
+  function closeSheet(){ $('sheet').classList.remove('show'); $('backdrop').classList.remove('show'); $('ai-btn').classList.remove('active'); }
+  $('ai-btn').onclick = () => $('sheet').classList.contains('show') ? closeSheet() : openSheet();
+  $('backdrop').onclick = closeSheet;
+  $('close-post').onclick = () => {}; // stub
+  $('tab-preview').onclick = () => {}; // no-op stub per spec
+  $('ia-left').onclick = () => { if (hasAttachments()) $('file-input').click(); else closeSheet(); };
+
+  // ---- file attach ----
+  $('file-input').onchange = (e) => {
+    [...e.target.files].forEach(addFile);
+    e.target.value = '';
+    render();
+  };
+  function addFile(file){
+    const kind = file.type.startsWith('video') ? 'video' : 'image';
+    const it = {id:++seq, file, name:file.name, kind, thumb:null, selected:true};
+    items.unshift(it);
+    if (kind === 'image') it.thumb = URL.createObjectURL(file);
+    else generatePoster(file).then(url => { it.thumb = url; render(); });
+  }
+  // Client-side video poster: seek a hidden <video> and draw to canvas.
+  function generatePoster(file){
+    return new Promise((resolve) => {
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'metadata';
+      v.src = URL.createObjectURL(file);
+      const done = () => {
+        try{
+          const c = document.createElement('canvas');
+          c.width = 160; c.height = 160;
+          const r = Math.min(v.videoWidth/160, v.videoHeight/160) || 1;
+          const sw = 160*r, sh = 160*r;
+          c.getContext('2d').drawImage(v, (v.videoWidth-sw)/2, (v.videoHeight-sh)/2, sw, sh, 0,0,160,160);
+          resolve(c.toDataURL('image/jpeg', .8));
+        }catch(_){ resolve(null); }
+      };
+      v.onloadeddata = () => { try{ v.currentTime = Math.min(.1, (v.duration||1)/2); }catch(_){ done(); } };
+      v.onseeked = done;
+      v.onerror = () => resolve(null);
+    });
+  }
+
+  function hasAttachments(){ return items.length > 0; }
+  function selectedItems(){ return items.filter(i => i.selected); }
+  function selectedFiles(){ return items.filter(i => i.selected && i.file); }
+
+  // ---- render ----
+  function render(){
+    // attachment chips
+    const cr = $('chips-row'); cr.innerHTML = '';
+    items.forEach(it => {
+      const chip = document.createElement('span'); chip.className = 'att-chip';
+      const thumb = it.thumb ? `<img src="${it.thumb}">` : `<span class="ph"></span>`;
+      chip.innerHTML = thumb + `<span>${it.kind==='video'?'🎥 ':''}${escapeHtml(it.name)}</span>`;
+      const rm = document.createElement('button'); rm.innerHTML = xSVG;
+      rm.onclick = () => { items = items.filter(x => x.id !== it.id); render(); };
+      chip.appendChild(rm); cr.appendChild(chip);
+    });
+
+    // empty-state caption vs media tiles
+    $('media-empty').style.display = items.length ? 'none' : 'block';
+
+    // media tiles
+    const mr = $('media-row'); mr.innerHTML = '';
+    items.forEach(it => {
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (it.selected ? ' sel' : '');
+      const inner = it.thumb ? `<img src="${it.thumb}">` : `<div class="grad" style="background:#e8e8ec">🎬</div>`;
+      const badge = it.kind === 'video' ? `<span class="badge">🎥</span>` : '';
+      tile.innerHTML = inner + badge + `<span class="check">${checkSVG}</span>`;
+      tile.onclick = () => { it.selected = !it.selected; render(); };
+      mr.appendChild(tile);
+    });
+    // add tile (always present)
+    const add = document.createElement('div');
+    add.className = 'tile add-tile';
+    add.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
+    add.onclick = () => $('file-input').click();
+    mr.appendChild(add);
+
+    // counter
+    const n = selectedItems().length;
+    $('counter').textContent = `${n} Item${n===1?'':'s'} Selected`;
+
+    // left icon: dismiss(✕) when empty, add(+) when attachments present
+    $('ia-left').classList.toggle('ia-dismiss', !hasAttachments());
+    $('ia-left').innerHTML = hasAttachments()
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+
+    // mic vs submit: show submit when there's prompt text or an attachment
+    const active = $('prompt').value.trim() !== '' || hasAttachments();
+    $('ia-mic').style.display = active ? 'none' : 'flex';
+    $('submit').style.display = active ? 'flex' : 'none';
+    $('submit').disabled = !active;
+    if ($('hint').textContent && selectedFiles().length) $('hint').textContent = '';
+  }
+  $('prompt').addEventListener('input', render);
+  function escapeHtml(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // ---- submit → /draft ----
+  $('submit').onclick = async () => {
+    const sel = selectedFiles();
+    if (!sel.length){ $('hint').textContent = 'Select a photo or video to draft from.'; return; }
+    $('hint').textContent = '';
+
+    // Dismiss the sheet and show the host-page skeleton for the whole wait (frame 4).
+    closeSheet();
+    showSkeleton();
+
+    // Send EVERY selected file in item order (= backend source_index).
+    const fd = new FormData();
+    sel.forEach(x => fd.append('files', x.file));
+    try{
+      const res = await fetch('/draft', { method:'POST', body:fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      populate(data);
+    }catch(err){
+      // restore the editor + reopen the sheet with the error
+      $('skeleton').classList.remove('show');
+      $('content').style.display = ''; $('title').style.display = '';
+      openSheet();
+      $('submit').disabled = false;
+      $('hint').textContent = 'Draft failed: ' + err.message;
+    }
+  };
+
+  function showSkeleton(){
+    $('skeleton').classList.add('show');
+    $('content').style.display = 'none';
+    $('title').style.display = 'none';
+  }
+  function populate(d){
+    $('skeleton').classList.remove('show');
+    $('content').style.display = '';
+    $('title').style.display = '';
+
+    pushSnapshot();  // pre-AI blank state (deduped against the initial load snapshot)
+
+    $('title').value = d.headline || '';
+    autoGrow($('title'), 0);
+    $('body').value = d.body || d.raw || '';
+    autoGrow($('body'), 320);
+
+    renderTags(Array.isArray(d.tags) ? d.tags.slice(0,4) : []);
+
+    if (d.hero_image_data_url){ $('hero').src = d.hero_image_data_url; $('hero').style.display = 'block'; }
+    else { $('hero').removeAttribute('src'); $('hero').style.display = 'none'; }
+
+    pushSnapshot();  // post-populate state → Undo reverts to blank, Redo re-applies
+  }
+
+  // ---- host-page tags (chips, max 4) ----
+  function renderTags(tags){
+    const box = $('tags');
+    box.querySelectorAll('.chip').forEach(c => c.remove());
+    const input = $('tags-input');
+    tags.forEach(t => box.insertBefore(makeChip(t), input));
+    updateTagInput();
+  }
+  function makeChip(text){
+    const chip = document.createElement('span'); chip.className = 'chip';
+    chip.appendChild(document.createTextNode(text));
+    const rm = document.createElement('button'); rm.innerHTML = xSVG;
+    rm.onclick = () => { chip.remove(); updateTagInput(); pushSnapshot(); };
+    chip.appendChild(rm); return chip;
+  }
+  function tagCount(){ return $('tags').querySelectorAll('.chip').length; }
+  function updateTagInput(){
+    const input = $('tags-input');
+    const full = tagCount() >= 4;
+    input.style.display = full ? 'none' : '';
+    input.placeholder = tagCount() ? 'Add tag...' : 'Add up to 4 tags...';
+  }
+  $('tags-input').addEventListener('keydown', (e) => {
+    const input = e.target;
+    if ((e.key === 'Enter' || e.key === ',') && input.value.trim()){
+      e.preventDefault();
+      if (tagCount() < 4){ $('tags').insertBefore(makeChip(input.value.trim()), input); input.value=''; updateTagInput(); pushSnapshot(); }
+    } else if (e.key === 'Backspace' && !input.value){
+      const chips = $('tags').querySelectorAll('.chip');
+      if (chips.length){ chips[chips.length-1].remove(); updateTagInput(); pushSnapshot(); }
+    }
+  });
+
+  // ---- auto-grow (title wraps to multiple lines; body grows with content) ----
+  function autoGrow(el, min){ el.style.height = 'auto'; el.style.height = Math.max(min||0, el.scrollHeight) + 'px'; }
+  $('body').addEventListener('input', (e) => { autoGrow(e.target, 320); scheduleSnapshot(); });
+  $('title').addEventListener('input', (e) => { autoGrow(e.target, 0); scheduleSnapshot(); });
+
+  // ---- toolbar formatting (markdown at the selection, toggles off if already applied) ----
+  function applyWrap(mark){
+    const ta = $('body'); const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value, m = mark.length;
+    const sel = v.slice(s, e);
+    if (v.slice(s-m, s) === mark && v.slice(e, e+m) === mark){            // wrapped outside → remove
+      ta.value = v.slice(0, s-m) + sel + v.slice(e+m); ta.selectionStart = s-m; ta.selectionEnd = e-m;
+    } else if (sel.length >= 2*m && sel.startsWith(mark) && sel.endsWith(mark)){  // wrapped inside → remove
+      const mid = sel.slice(m, sel.length-m);
+      ta.value = v.slice(0, s) + mid + v.slice(e); ta.selectionStart = s; ta.selectionEnd = s + mid.length;
+    } else {                                                             // add
+      ta.value = v.slice(0, s) + mark + sel + mark + v.slice(e); ta.selectionStart = s+m; ta.selectionEnd = e+m;
+    }
+    ta.focus(); autoGrow(ta, 320); pushSnapshot();
+  }
+  function applyLinePrefix(kind){
+    const ta = $('body'); const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+    const ls = v.lastIndexOf('\n', s-1) + 1;
+    let le = v.indexOf('\n', e); if (le === -1) le = v.length;
+    const lines = v.slice(ls, le).split('\n');
+    const olRe = /^\d+\.\s/, ulRe = /^-\s/, re = kind === 'ol' ? olRe : ulRe;
+    const already = lines.every(l => l.trim() === '' || re.test(l));
+    let out, n = 0;
+    if (already) out = lines.map(l => l.replace(re, '')).join('\n');    // toggle off
+    else out = lines.map(l => l.trim() === '' ? l : (kind === 'ol' ? (++n) + '. ' : '- ') + l.replace(olRe, '').replace(ulRe, '')).join('\n');
+    ta.value = v.slice(0, ls) + out + v.slice(le); ta.selectionStart = ls; ta.selectionEnd = ls + out.length;
+    ta.focus(); autoGrow(ta, 320); pushSnapshot();
+  }
+  $('fmt-bold').onclick   = () => applyWrap('**');
+  $('fmt-italic').onclick = () => applyWrap('*');
+  $('fmt-ol').onclick     = () => applyLinePrefix('ol');
+  $('fmt-ul').onclick     = () => applyLinePrefix('ul');
+
+  // ---- undo / redo (snapshots of {title, tags, body, hero}) ----
+  let history = [], hIdx = -1, snapTimer = null;
+  function snapshot(){
+    return {
+      title: $('title').value,
+      tags: [...$('tags').querySelectorAll('.chip')].map(c => c.firstChild.textContent),
+      body: $('body').value,
+      heroSrc: $('hero').getAttribute('src') || '',
+      heroShown: $('hero').style.display !== 'none' && !!$('hero').getAttribute('src'),
+    };
+  }
+  function sameSnap(a, b){
+    return a && b && a.title === b.title && a.body === b.body && a.heroSrc === b.heroSrc &&
+           a.heroShown === b.heroShown && a.tags.join('') === b.tags.join('');
+  }
+  function pushSnapshot(){
+    const snap = snapshot();
+    if (hIdx >= 0 && sameSnap(history[hIdx], snap)) return;   // dedupe no-op edits
+    history = history.slice(0, hIdx + 1);
+    history.push(snap); hIdx = history.length - 1;
+    updateUndoRedo();
+  }
+  function scheduleSnapshot(){ clearTimeout(snapTimer); snapTimer = setTimeout(pushSnapshot, 600); }  // 600ms debounce
+  function restore(snap){
+    $('title').value = snap.title; autoGrow($('title'), 0);
+    $('body').value = snap.body; autoGrow($('body'), 320);
+    renderTags(snap.tags);
+    if (snap.heroShown && snap.heroSrc){ $('hero').src = snap.heroSrc; $('hero').style.display = 'block'; }
+    else { $('hero').removeAttribute('src'); $('hero').style.display = 'none'; }
+  }
+  function updateUndoRedo(){ $('undo-btn').disabled = hIdx <= 0; $('redo-btn').disabled = hIdx >= history.length - 1; }
+  $('undo-btn').onclick = () => { if (hIdx > 0){ clearTimeout(snapTimer); hIdx--; restore(history[hIdx]); updateUndoRedo(); } };
+  $('redo-btn').onclick = () => { if (hIdx < history.length - 1){ clearTimeout(snapTimer); hIdx++; restore(history[hIdx]); updateUndoRedo(); } };
+
+  // ---- init ----
+  render();
+  autoGrow($('title'), 0);
+  pushSnapshot();  // initial blank snapshot
+</script>
+</body>
+</html>
