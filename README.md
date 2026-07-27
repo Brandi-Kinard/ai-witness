@@ -48,3 +48,4 @@ places, all consistent:
 2. `server.py` — read via `os.environ.get(...)`, warns at startup if missing, and
    re-checks before every Gemini call (returns 500 if unset).
 3. `GET /health` — reports `key_configured` for a quick diagnostic.
+© 2026 Brandi Kinard. Originally authored and first published July 26, 2026.
